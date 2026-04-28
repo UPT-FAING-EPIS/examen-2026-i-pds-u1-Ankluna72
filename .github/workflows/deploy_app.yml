@@ -1,7 +1,8 @@
 # =====================================================================
-# deploy_app.yml — Deploy Frontend & Backend Applications
-# Backend → Azure App Service (Docker)
-# Frontend → Azure Static Web Apps
+# deploy_app.yml — Deploy GRATUITO
+# Frontend  → GitHub Pages (GRATIS, sin secrets adicionales)
+# Backend   → Render.com  (GRATIS, 1 solo secret: RENDER_DEPLOY_HOOK_URL)
+# Base datos → Render.com PostgreSQL (GRATIS, configurado en render.yaml)
 # =====================================================================
 name: Deploy Application
 
@@ -11,40 +12,41 @@ on:
     paths:
       - 'backend/**'
       - 'frontend/**'
+      - 'render.yaml'
       - '.github/workflows/deploy_app.yml'
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Target environment'
-        required: true
-        default: 'dev'
-        type: choice
-        options: [dev, staging, prod]
 
-env:
-  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}
-  BACKEND_IMAGE: gym-api
-  FRONTEND_APP_NAME: ${{ secrets.AZURE_STATIC_WEB_APP_NAME }}
+# Permisos necesarios para GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "deploy"
+  cancel-in-progress: false
 
 jobs:
-  # ── Test ─────────────────────────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # JOB 1: Tests del backend
+  # ────────────────────────────────────────────────────────────────
   test-backend:
-    name: Run Tests
+    name: 🧪 Run Backend Tests
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup .NET
+      - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      - name: Restore
+      - name: Restore packages
         working-directory: backend
         run: dotnet restore GymManagement.sln
 
-      - name: Build
+      - name: Build solution
         working-directory: backend
         run: dotnet build GymManagement.sln -c Release --no-restore
 
@@ -52,106 +54,32 @@ jobs:
         working-directory: backend
         run: |
           dotnet test tests/GymManagement.UnitTests/GymManagement.UnitTests.csproj \
-            --no-build -c Release \
-            --logger "trx;LogFileName=unit-tests.trx" \
-            --collect:"XPlat Code Coverage"
+            -c Release --no-build \
+            --logger "console;verbosity=minimal"
 
       - name: Run Integration Tests
         working-directory: backend
         run: |
           dotnet test tests/GymManagement.IntegrationTests/GymManagement.IntegrationTests.csproj \
-            --no-build -c Release \
-            --logger "trx;LogFileName=integration-tests.trx"
+            -c Release --no-build \
+            --logger "console;verbosity=minimal"
 
-      - name: Publish Test Results
-        uses: dorny/test-reporter@v1
-        if: always()
-        with:
-          name: .NET Test Results
-          path: backend/**/*.trx
-          reporter: dotnet-trx
-
-  # ── Build & Push Backend Image ────────────────────────────────────
-  build-backend:
-    name: Build & Push Backend Docker Image
-    needs: test-backend
-    runs-on: ubuntu-latest
-
-    outputs:
-      image_tag: ${{ steps.meta.outputs.tags }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Login to Azure Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ secrets.ACR_LOGIN_SERVER }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix=sha-
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push backend image
-        uses: docker/build-push-action@v5
-        with:
-          context: backend
-          file: backend/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # ── Deploy Backend ────────────────────────────────────────────────
-  deploy-backend:
-    name: Deploy Backend to Azure App Service
-    needs: build-backend
-    runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment || 'dev' }}
-
-    steps:
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Deploy to Azure App Service
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
-          images: ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.BACKEND_IMAGE }}:latest
-
-      - name: Wait for deployment
-        run: sleep 30
-
-      - name: Health Check
-        run: |
-          curl -f https://${{ secrets.AZURE_WEBAPP_NAME }}.azurewebsites.net/health || \
-          echo "Health check failed - app may still be starting"
-
-  # ── Build & Deploy Frontend ───────────────────────────────────────
+  # ────────────────────────────────────────────────────────────────
+  # JOB 2: Deploy Frontend → GitHub Pages (GRATIS, automático)
+  # No necesita ningún secret extra — usa GITHUB_TOKEN automático
+  # ────────────────────────────────────────────────────────────────
   deploy-frontend:
-    name: Deploy Frontend to Azure Static Web Apps
+    name: 🌐 Deploy Frontend → GitHub Pages
     needs: test-backend
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment || 'dev' }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -160,24 +88,57 @@ jobs:
 
       - name: Install dependencies
         working-directory: frontend
-        run: npm ci
+        run: npm install
 
-      - name: Lint frontend
-        working-directory: frontend
-        run: npm run lint
-        continue-on-error: true
-
-      - name: Build frontend
+      - name: Build frontend (production)
         working-directory: frontend
         run: npm run build
         env:
-          VITE_API_BASE_URL: https://${{ secrets.AZURE_WEBAPP_NAME }}.azurewebsites.net
+          # URL del backend en Render.com — sin trailing slash
+          # Ejemplo: https://gym-management-api.onrender.com
+          VITE_API_URL: ${{ vars.RENDER_BACKEND_URL }}
+          # Base path para GitHub Pages = /nombre-del-repo/
+          VITE_BASE_PATH: /examen-2026-i-pds-u1-Ankluna72/
 
-      - name: Deploy to Azure Static Web Apps
-        uses: Azure/static-web-apps-deploy@v1
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          action: "upload"
-          app_location: "frontend"
-          output_location: "dist"
+          path: frontend/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Print deployed URL
+        run: echo "✅ Frontend URL: ${{ steps.deployment.outputs.page_url }}"
+
+  # ────────────────────────────────────────────────────────────────
+  # JOB 3: Deploy Backend → Render.com (GRATIS)
+  # Solo necesita 1 secret: RENDER_DEPLOY_HOOK_URL
+  # Lo obtienes en: Dashboard de Render → tu servicio → Settings → Deploy Hook
+  # ────────────────────────────────────────────────────────────────
+  deploy-backend:
+    name: 🚀 Deploy Backend → Render.com
+    needs: test-backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Trigger Render.com deploy
+        run: |
+          if [ -n "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            echo "🚀 Triggering Render.com deployment..."
+            curl -s --fail-with-body \
+              "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" \
+              -X POST
+            echo "✅ Render.com deploy triggered successfully"
+          else
+            echo "⚠️  RENDER_DEPLOY_HOOK_URL secret not set."
+            echo "    Para configurar el deploy automático:"
+            echo "    1. Ve a https://dashboard.render.com"
+            echo "    2. Selecciona tu servicio gym-management-api"
+            echo "    3. Settings → Deploy Hook → Copiar URL"
+            echo "    4. Agregar como secret RENDER_DEPLOY_HOOK_URL en GitHub"
+          fi

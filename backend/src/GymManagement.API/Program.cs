@@ -8,6 +8,10 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ── Port config for Render.com (uses PORT env var) ────────────────
+var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
+builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+
 // ── Services ─────────────────────────────────────────────────────────────────
 
 builder.Services.AddControllers();
@@ -58,6 +62,10 @@ if (app.Environment.IsDevelopment())
 app.UseCors("AllowAll");
 app.UseHttpsRedirection();
 app.UseAuthorization();
+
+// Health check endpoint (required by Render.com)
+app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
+
 app.MapControllers();
 
 // Auto-migrate on startup

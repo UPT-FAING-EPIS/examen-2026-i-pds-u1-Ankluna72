@@ -1,0 +1,31 @@
+# render.yaml — Render.com Blueprint (IaC para Render)
+# Este archivo configura automáticamente el backend y la base de datos
+# cuando conectas el repo en https://dashboard.render.com
+
+services:
+  # ── Backend API (.NET Core 8) ───────────────────────────────────
+  - type: web
+    name: gym-management-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    region: oregon
+    plan: free          # Plan GRATUITO (sleeps after 15 min inactivity)
+    healthCheckPath: /health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://+:10000
+      - key: ConnectionStrings__DefaultConnection
+        fromDatabase:
+          name: gym-postgres
+          property: connectionString
+
+# ── PostgreSQL Database ─────────────────────────────────────────
+databases:
+  - name: gym-postgres
+    databaseName: gymdb
+    user: gymadmin
+    region: oregon
+    plan: free          # Plan GRATUITO (1 GB almacenamiento)

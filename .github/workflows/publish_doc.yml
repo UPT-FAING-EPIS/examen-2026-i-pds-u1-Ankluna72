@@ -1,6 +1,7 @@
 # =====================================================================
-# publish_doc.yml — Generate & Publish API Documentation to GitHub Pages
-# Uses DocFX to build .NET XML documentation
+# publish_doc.yml — Publica documentación en GitHub Pages
+# GRATIS — solo usa GITHUB_TOKEN (automático, no necesitas configurar nada)
+# URL resultante: https://upt-faing-epis.github.io/examen-2026-i-pds-u1-Ankluna72/
 # =====================================================================
 name: Publish Documentation
 
@@ -10,7 +11,7 @@ on:
     paths:
       - 'backend/src/**'
       - 'docs/**'
-      - '.github/workflows/publish_doc.yml'
+      - 'README.md'
   workflow_dispatch:
 
 permissions:
@@ -24,14 +25,14 @@ concurrency:
 
 jobs:
   build-docs:
-    name: Build Documentation
+    name: 📚 Build Documentation
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET
+      - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
@@ -39,66 +40,55 @@ jobs:
       - name: Install DocFX
         run: dotnet tool install -g docfx
 
-      - name: Restore NuGet packages
+      - name: Restore & Build (generates XML docs)
         working-directory: backend
-        run: dotnet restore GymManagement.sln
-
-      - name: Build solution (generates XML docs)
-        working-directory: backend
-        run: dotnet build GymManagement.sln -c Release /p:GenerateDocumentationFile=true --no-restore
+        run: |
+          dotnet restore GymManagement.sln
+          dotnet build GymManagement.sln -c Release \
+            /p:GenerateDocumentationFile=true \
+            --no-restore
 
       - name: Create DocFX config
         run: |
-          mkdir -p docs-build
-          cat > docfx.json << 'EOF'
+          cat > docfx.json << 'DOCFX_EOF'
           {
             "metadata": [
               {
-                "src": [
-                  {
-                    "files": ["backend/src/**/*.csproj"],
-                    "exclude": ["backend/tests/**/*.csproj"]
-                  }
-                ],
-                "dest": "api",
-                "includePrivateMembers": false,
-                "disableGitFeatures": false,
-                "disableDefaultFilter": false
+                "src": [{ "files": ["backend/src/**/*.csproj"] }],
+                "dest": "_api",
+                "includePrivateMembers": false
               }
             ],
             "build": {
               "content": [
-                { "files": ["api/**.yml", "api/index.md"] },
-                { "files": ["docs/*.md", "README.md"], "src": "." }
+                { "files": ["_api/**.yml", "_api/index.md"] },
+                { "files": ["README.md", "docs/*.md"] }
               ],
-              "resource": [
-                { "files": ["docs/images/**", "docs/*.png"] }
-              ],
-              "output": "docs-build",
+              "output": "_site",
               "globalMetadata": {
                 "_appName": "GymPro — Sistema de Gestión de Gimnasio",
-                "_appTitle": "GymPro API Documentation",
+                "_appTitle": "GymPro API Docs",
                 "_enableSearch": true,
-                "_appFooter": "GymPro © 2026 — Ankluna72 — PDS UPT"
+                "_appFooter": "GymPro © 2026 — Ankluna72 — PDS UPT FAING EPIS"
               },
               "template": ["default", "modern"]
             }
           }
-          EOF
+          DOCFX_EOF
 
-      - name: Build DocFX documentation
+      - name: Build documentation site
         run: docfx docfx.json
 
-      - name: Setup GitHub Pages
+      - name: Setup Pages
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs-build
+          path: _site
 
   deploy-docs:
-    name: Deploy to GitHub Pages
+    name: 🚀 Deploy to GitHub Pages
     needs: build-docs
     runs-on: ubuntu-latest
     environment:
@@ -109,3 +99,6 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Print URL
+        run: echo "📚 Docs URL ${{ steps.deployment.outputs.page_url }}"

@@ -1,8 +1,14 @@
 import axios from 'axios';
 import type { Client, CreateClientDto, Membership, CreateMembershipDto, RenewMembershipDto, WorkoutSession, CreateWorkoutSessionDto } from '../types';
 
+// In production (GitHub Pages), call Render.com backend directly
+// In development, the Vite proxy forwards /api → localhost:5000
+const API_BASE = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/api`
+  : '/api';
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' }
 });
 
