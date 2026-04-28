@@ -1,0 +1,96 @@
+# =====================================================================
+# infra_diagram.yml — Generate Infrastructure Architecture Diagram
+# Uses Terraform's graph and converts it to an image
+# =====================================================================
+name: Generate Infrastructure Diagram
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infrastructure/**'
+  workflow_dispatch:
+
+jobs:
+  generate-diagram:
+    name: Generate Terraform Infrastructure Diagram
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.7.5'
+
+      - name: Install Graphviz
+        run: sudo apt-get install -y graphviz
+
+      - name: Install Python dependencies for diagram
+        run: pip install diagrams
+
+      - name: Create Python Diagram Script
+        run: |
+          cat > generate_diagram.py << 'EOF'
+          from diagrams import Diagram, Cluster, Edge
+          from diagrams.azure.compute import AppServices
+          from diagrams.azure.database import DatabaseForPostgresqlServers
+          from diagrams.azure.storage import StorageAccounts
+          from diagrams.azure.web import AppServicePlans
+          from diagrams.azure.network import LoadBalancers
+          from diagrams.onprem.container import Docker
+          from diagrams.onprem.client import Users
+
+          with Diagram(
+              "Gym Management System — Azure Infrastructure",
+              filename="docs/infrastructure_diagram",
+              outformat="png",
+              show=False,
+              direction="LR"
+          ):
+              users = Users("End Users")
+
+              with Cluster("Azure Resource Group: gymmanagement-dev-rg"):
+                  with Cluster("Frontend"):
+                      frontend = AppServices("Static Web App\n(React SPA)")
+
+                  with Cluster("Backend"):
+                      plan = AppServicePlans("App Service Plan B1")
+                      api = AppServices("App Service\n(GymManagement.API)")
+                      plan >> api
+
+                  with Cluster("Data Layer"):
+                      db = DatabaseForPostgresqlServers("PostgreSQL\nFlexible Server")
+
+                  with Cluster("Container Registry"):
+                      acr = Docker("Azure Container\nRegistry")
+
+              users >> frontend >> api
+              api >> db
+              acr >> api
+          EOF
+
+      - name: Create docs directory
+        run: mkdir -p docs
+
+      - name: Generate diagram
+        run: python generate_diagram.py
+
+      - name: Commit diagram to repository
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs: update infrastructure diagram [skip ci]"
+          file_pattern: "docs/infrastructure_diagram.png"
+          commit_user_name: "github-actions[bot]"
+          commit_user_email: "github-actions[bot]@users.noreply.github.com"
+
+      - name: Upload diagram artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: infrastructure-diagram
+          path: docs/infrastructure_diagram.png
+          retention-days: 90

@@ -1,0 +1,211 @@
+# =====================================================================
+# release.yml — Automated Release Creation
+# Trigger: Push of version tags (v*.*.*)
+# Creates GitHub Release with changelog and build artifacts
+# =====================================================================
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  NODE_VERSION: '20'
+
+jobs:
+  # ── Validate & Test ───────────────────────────────────────────────
+  validate:
+    name: Validate & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for changelog
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run .NET Tests
+        working-directory: backend
+        run: |
+          dotnet restore GymManagement.sln
+          dotnet build GymManagement.sln -c Release
+          dotnet test GymManagement.sln -c Release --no-build
+
+      - name: Build Frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+  # ── Build Release Artifacts ───────────────────────────────────────
+  build-artifacts:
+    name: Build Release Artifacts
+    needs: validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME:-${{ github.event.inputs.version }}}" >> $GITHUB_OUTPUT
+
+      - name: Publish .NET API
+        working-directory: backend
+        run: |
+          dotnet publish src/GymManagement.API/GymManagement.API.csproj \
+            -c Release \
+            -r linux-x64 \
+            --self-contained false \
+            -o /tmp/gym-api-${{ steps.version.outputs.VERSION }}
+          cd /tmp
+          zip -r gym-api-${{ steps.version.outputs.VERSION }}.zip gym-api-${{ steps.version.outputs.VERSION }}/
+
+      - name: Build Frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          cd dist
+          zip -r /tmp/gym-frontend-${{ steps.version.outputs.VERSION }}.zip .
+
+      - name: Upload Backend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gym-api
+          path: /tmp/gym-api-${{ steps.version.outputs.VERSION }}.zip
+
+      - name: Upload Frontend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gym-frontend
+          path: /tmp/gym-frontend-${{ steps.version.outputs.VERSION }}.zip
+
+  # ── Generate Changelog ────────────────────────────────────────────
+  generate-changelog:
+    name: Generate Changelog
+    needs: validate
+    runs-on: ubuntu-latest
+
+    outputs:
+      changelog: ${{ steps.changelog.outputs.changelog }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get previous tag
+        id: previoustag
+        run: |
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "PREV_TAG=$PREV" >> $GITHUB_OUTPUT
+
+      - name: Generate Changelog
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME:-${{ github.event.inputs.version }}}"
+          PREV="${{ steps.previoustag.outputs.PREV_TAG }}"
+
+          if [ -z "$PREV" ]; then
+            COMMITS=$(git log --oneline --pretty=format:"- %s (%an)" | head -30)
+          else
+            COMMITS=$(git log $PREV..HEAD --oneline --pretty=format:"- %s (%an)")
+          fi
+
+          cat > changelog.md << EOF
+          ## 🚀 Cambios en $VERSION
+
+          ### 🏋️ Sistema de Gestión de Gimnasio
+
+          **Release:** $VERSION
+          **Fecha:** $(date +"%Y-%m-%d")
+
+          ### ✨ Cambios
+          $COMMITS
+
+          ### 📦 Componentes
+          - **Backend:** .NET Core 8 API (GymManagement.API)
+          - **Frontend:** React 18 + Vite SPA
+          - **Base de datos:** PostgreSQL 15
+
+          ### 🔗 URLs
+          - API Docs: \`/swagger\`
+          - GitHub Pages: Ver documentación en el tab Pages
+
+          ---
+          *Generado automáticamente por GitHub Actions*
+          EOF
+
+          echo "changelog=$(cat changelog.md | base64 -w 0)" >> $GITHUB_OUTPUT
+
+      - name: Upload Changelog
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: changelog.md
+
+  # ── Create GitHub Release ─────────────────────────────────────────
+  create-release:
+    name: Create GitHub Release
+    needs: [build-artifacts, generate-changelog]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME:-${{ github.event.inputs.version }}}" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Display artifacts
+        run: ls -la artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: "🏋️ GymPro ${{ steps.version.outputs.VERSION }}"
+          body_path: artifacts/changelog/changelog.md
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.VERSION, '-rc') || contains(steps.version.outputs.VERSION, '-beta') || contains(steps.version.outputs.VERSION, '-alpha') }}
+          files: |
+            artifacts/gym-api/*.zip
+            artifacts/gym-frontend/*.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

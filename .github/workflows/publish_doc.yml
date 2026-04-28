@@ -1,0 +1,111 @@
+# =====================================================================
+# publish_doc.yml — Generate & Publish API Documentation to GitHub Pages
+# Uses DocFX to build .NET XML documentation
+# =====================================================================
+name: Publish Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/src/**'
+      - 'docs/**'
+      - '.github/workflows/publish_doc.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-docs:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install DocFX
+        run: dotnet tool install -g docfx
+
+      - name: Restore NuGet packages
+        working-directory: backend
+        run: dotnet restore GymManagement.sln
+
+      - name: Build solution (generates XML docs)
+        working-directory: backend
+        run: dotnet build GymManagement.sln -c Release /p:GenerateDocumentationFile=true --no-restore
+
+      - name: Create DocFX config
+        run: |
+          mkdir -p docs-build
+          cat > docfx.json << 'EOF'
+          {
+            "metadata": [
+              {
+                "src": [
+                  {
+                    "files": ["backend/src/**/*.csproj"],
+                    "exclude": ["backend/tests/**/*.csproj"]
+                  }
+                ],
+                "dest": "api",
+                "includePrivateMembers": false,
+                "disableGitFeatures": false,
+                "disableDefaultFilter": false
+              }
+            ],
+            "build": {
+              "content": [
+                { "files": ["api/**.yml", "api/index.md"] },
+                { "files": ["docs/*.md", "README.md"], "src": "." }
+              ],
+              "resource": [
+                { "files": ["docs/images/**", "docs/*.png"] }
+              ],
+              "output": "docs-build",
+              "globalMetadata": {
+                "_appName": "GymPro — Sistema de Gestión de Gimnasio",
+                "_appTitle": "GymPro API Documentation",
+                "_enableSearch": true,
+                "_appFooter": "GymPro © 2026 — Ankluna72 — PDS UPT"
+              },
+              "template": ["default", "modern"]
+            }
+          }
+          EOF
+
+      - name: Build DocFX documentation
+        run: docfx docfx.json
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs-build
+
+  deploy-docs:
+    name: Deploy to GitHub Pages
+    needs: build-docs
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,259 @@
+# =====================================================================
+# class_diagram.yml — Generate UML Class Diagram from .NET source
+# Uses netdiagram / mermaid to produce class diagrams
+# =====================================================================
+name: Generate Class Diagram
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/src/**'
+  workflow_dispatch:
+
+jobs:
+  generate-class-diagram:
+    name: Generate UML Class Diagram
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore & Build
+        working-directory: backend
+        run: |
+          dotnet restore GymManagement.sln
+          dotnet build GymManagement.sln -c Release --no-restore
+
+      - name: Install Node.js for Mermaid
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Mermaid CLI
+        run: npm install -g @mermaid-js/mermaid-cli
+
+      - name: Create docs directory
+        run: mkdir -p docs
+
+      - name: Generate Mermaid Class Diagram
+        run: |
+          cat > docs/class_diagram.mmd << 'EOF'
+          classDiagram
+              direction TB
+
+              class Client {
+                +int Id
+                +string FirstName
+                +string LastName
+                +string Email
+                +string Phone
+                +DateTime BirthDate
+                +DateTime CreatedAt
+                +bool IsActive
+                +string FullName
+                +Create(firstName, lastName, email, phone, birthDate) Client
+                +Update(firstName, lastName, phone) void
+                +Deactivate() void
+              }
+
+              class Membership {
+                +int Id
+                +int ClientId
+                +string PlanName
+                +decimal Price
+                +DateTime StartDate
+                +DateTime EndDate
+                +MembershipStatus Status
+                +DateTime CreatedAt
+                +bool IsValid
+                +Create(clientId, planName, price, startDate, endDate) Membership
+                +Renew(newEndDate) void
+                +Suspend() void
+                +Cancel() void
+                +CheckExpiry() void
+              }
+
+              class WorkoutSession {
+                +int Id
+                +int ClientId
+                +DateTime SessionDate
+                +TimeSpan StartTime
+                +TimeSpan EndTime
+                +string Notes
+                +DateTime CreatedAt
+                +Create(clientId, sessionDate, startTime) WorkoutSession
+                +SetEndTime(endTime) void
+              }
+
+              class WorkoutExercise {
+                +int Id
+                +int WorkoutSessionId
+                +string ExerciseName
+                +int Sets
+                +int Reps
+                +decimal WeightKg
+                +string Notes
+                +int Order
+                +Create(sessionId, name, sets, reps, weight, notes, order) WorkoutExercise
+              }
+
+              class MembershipStatus {
+                <<enumeration>>
+                Active
+                Expired
+                Suspended
+                Cancelled
+              }
+
+              class IClientRepository {
+                <<interface>>
+                +GetByIdAsync(id) Task~Client~
+                +GetAllAsync() Task~IEnumerable~Client~~
+                +ExistsByEmailAsync(email) Task~bool~
+                +AddAsync(client) Task
+                +UpdateAsync(client) Task
+                +SaveChangesAsync() Task~int~
+              }
+
+              class IMembershipRepository {
+                <<interface>>
+                +GetByIdAsync(id) Task~Membership~
+                +GetByClientIdAsync(clientId) Task~IEnumerable~Membership~~
+                +AddAsync(membership) Task
+                +UpdateAsync(membership) Task
+                +SaveChangesAsync() Task~int~
+              }
+
+              class IWorkoutSessionRepository {
+                <<interface>>
+                +GetByIdAsync(id) Task~WorkoutSession~
+                +GetByClientIdAsync(clientId) Task~IEnumerable~WorkoutSession~~
+                +AddAsync(session) Task
+                +UpdateAsync(session) Task
+                +SaveChangesAsync() Task~int~
+              }
+
+              class IClientService {
+                <<interface>>
+                +GetByIdAsync(id) Task~ClientDto~
+                +GetAllAsync() Task~IEnumerable~ClientDto~~
+                +CreateAsync(dto) Task~ClientDto~
+                +UpdateAsync(id, dto) Task~ClientDto~
+              }
+
+              class IMembershipService {
+                <<interface>>
+                +GetByIdAsync(id) Task~MembershipDto~
+                +GetByClientIdAsync(clientId) Task~IEnumerable~MembershipDto~~
+                +CreateAsync(dto) Task~MembershipDto~
+                +RenewAsync(id, dto) Task~MembershipDto~
+                +SuspendAsync(id) Task~MembershipDto~
+                +CancelAsync(id) Task~MembershipDto~
+              }
+
+              class IWorkoutSessionService {
+                <<interface>>
+                +GetByIdAsync(id) Task~WorkoutSessionDto~
+                +GetByClientIdAsync(clientId) Task~IEnumerable~WorkoutSessionDto~~
+                +CreateAsync(dto) Task~WorkoutSessionDto~
+              }
+
+              class ClientService {
+                -IClientRepository _repository
+                +GetByIdAsync(id) Task~ClientDto~
+                +GetAllAsync() Task~IEnumerable~ClientDto~~
+                +CreateAsync(dto) Task~ClientDto~
+                +UpdateAsync(id, dto) Task~ClientDto~
+              }
+
+              class MembershipService {
+                -IMembershipRepository _membershipRepo
+                -IClientRepository _clientRepo
+                +GetByIdAsync(id) Task~MembershipDto~
+                +CreateAsync(dto) Task~MembershipDto~
+                +RenewAsync(id, dto) Task~MembershipDto~
+              }
+
+              class WorkoutSessionService {
+                -IWorkoutSessionRepository _sessionRepo
+                -IClientRepository _clientRepo
+                +GetByIdAsync(id) Task~WorkoutSessionDto~
+                +CreateAsync(dto) Task~WorkoutSessionDto~
+              }
+
+              class ClientsController {
+                -IClientService _clientService
+                +GetAll() IActionResult
+                +GetById(id) IActionResult
+                +Create(dto) IActionResult
+                +Update(id, dto) IActionResult
+                +GetMemberships(id) IActionResult
+                +GetWorkoutSessions(id) IActionResult
+              }
+
+              class MembershipsController {
+                -IMembershipService _membershipService
+                +GetById(id) IActionResult
+                +Create(dto) IActionResult
+                +Renew(id, dto) IActionResult
+                +Suspend(id) IActionResult
+                +Cancel(id) IActionResult
+              }
+
+              class WorkoutSessionsController {
+                -IWorkoutSessionService _sessionService
+                +GetById(id) IActionResult
+                +Create(dto) IActionResult
+              }
+
+              Client "1" --> "*" Membership : has
+              Client "1" --> "*" WorkoutSession : has
+              WorkoutSession "1" --> "*" WorkoutExercise : contains
+              Membership --> MembershipStatus : status
+
+              ClientService ..|> IClientService : implements
+              MembershipService ..|> IMembershipService : implements
+              WorkoutSessionService ..|> IWorkoutSessionService : implements
+
+              ClientService ..> IClientRepository : uses
+              MembershipService ..> IMembershipRepository : uses
+              MembershipService ..> IClientRepository : uses
+              WorkoutSessionService ..> IWorkoutSessionRepository : uses
+              WorkoutSessionService ..> IClientRepository : uses
+
+              ClientsController ..> IClientService : injects
+              ClientsController ..> IMembershipService : injects
+              ClientsController ..> IWorkoutSessionService : injects
+              MembershipsController ..> IMembershipService : injects
+              WorkoutSessionsController ..> IWorkoutSessionService : injects
+          EOF
+
+      - name: Render Mermaid to PNG
+        run: |
+          mmdc -i docs/class_diagram.mmd -o docs/class_diagram.png -t dark -b transparent --width 2000
+
+      - name: Commit diagram to repository
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "docs: update class diagram [skip ci]"
+          file_pattern: "docs/class_diagram.*"
+          commit_user_name: "github-actions[bot]"
+          commit_user_email: "github-actions[bot]@users.noreply.github.com"
+
+      - name: Upload diagram artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: class-diagram
+          path: |
+            docs/class_diagram.mmd
+            docs/class_diagram.png
+          retention-days: 90
