@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { clientsApi, membershipsApi, workoutSessionsApi } from '../services/api';
-import type { Client, Membership, WorkoutSession } from '../types';
 import { useNavigate } from 'react-router-dom';
+import { clientsApi } from '../services/api';
+import type { Client } from '../types';
 
 export default function Dashboard() {
   const [clients, setClients] = useState<Client[]>([]);

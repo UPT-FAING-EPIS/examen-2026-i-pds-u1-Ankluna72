@@ -31,7 +31,7 @@ public class WorkoutSessionService : IWorkoutSessionService
     public async Task<IEnumerable<WorkoutSessionDto>> GetByClientIdAsync(int clientId, CancellationToken cancellationToken = default)
     {
         var sessions = await _sessionRepository.GetByClientIdAsync(clientId, cancellationToken);
-        return sessions.Select(MapToDto);
+        return sessions.Select(s => MapToDto(s));
     }
 
     /// <inheritdoc/>

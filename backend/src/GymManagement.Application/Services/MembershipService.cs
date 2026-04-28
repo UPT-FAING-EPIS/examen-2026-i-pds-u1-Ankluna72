@@ -34,7 +34,7 @@ public class MembershipService : IMembershipService
     {
         var memberships = await _membershipRepository.GetByClientIdAsync(clientId, cancellationToken);
         foreach (var m in memberships) m.CheckExpiry();
-        return memberships.Select(MapToDto);
+        return memberships.Select(m => MapToDto(m));
     }
 
     /// <inheritdoc/>

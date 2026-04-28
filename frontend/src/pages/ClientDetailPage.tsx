@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { clientsApi, membershipsApi, workoutSessionsApi } from '../services/api';
-import type { Client, Membership, WorkoutSession, CreateMembershipDto, RenewMembershipDto, CreateWorkoutSessionDto } from '../types';
+import type { Client, Membership, WorkoutSession, CreateMembershipDto, CreateWorkoutSessionDto } from '../types';
 import StatusBadge from '../components/StatusBadge';
 import Avatar from '../components/Avatar';
 
