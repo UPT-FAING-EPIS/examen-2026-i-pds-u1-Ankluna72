@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  // Base path for GitHub Pages — matches repository name
+  // Base path: /repo-name/app/ when deployed to GitHub Pages subfolder
   base: process.env.VITE_BASE_PATH || '/',
   server: {
     port: 5173,

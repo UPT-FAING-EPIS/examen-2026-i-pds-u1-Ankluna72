@@ -1,8 +1,8 @@
 # =====================================================================
 # deploy_app.yml — Deploy GRATUITO
-# Frontend  → GitHub Pages (GRATIS, sin secrets adicionales)
-# Backend   → Render.com  (GRATIS, 1 solo secret: RENDER_DEPLOY_HOOK_URL)
-# Base datos → Render.com PostgreSQL (GRATIS, configurado en render.yaml)
+# Frontend  → GitHub Pages via publish_doc.yml (mismo sitio que la docs)
+# Backend   → Render.com (GRATIS, auto-deploy via render.yaml)
+# Este workflow: corre tests + build del frontend + trigger Render.com
 # =====================================================================
 name: Deploy Application
 
@@ -16,14 +16,11 @@ on:
       - '.github/workflows/deploy_app.yml'
   workflow_dispatch:
 
-# Permisos necesarios para GitHub Pages
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: "deploy"
+  group: "deploy-app"
   cancel-in-progress: false
 
 jobs:
@@ -48,7 +45,7 @@ jobs:
 
       - name: Build solution
         working-directory: backend
-        run: dotnet build GymManagement.sln -c Release --no-restore
+        run: dotnet build GymManagement.sln -c Release --no-restore /p:NoWarn=CS1591
 
       - name: Run Unit Tests
         working-directory: backend
@@ -65,16 +62,13 @@ jobs:
             --logger "console;verbosity=minimal"
 
   # ────────────────────────────────────────────────────────────────
-  # JOB 2: Deploy Frontend → GitHub Pages (GRATIS, automático)
-  # No necesita ningún secret extra — usa GITHUB_TOKEN automático
+  # JOB 2: Build Frontend (verification only)
+  # El deploy a Pages lo maneja publish_doc.yml para evitar conflictos
   # ────────────────────────────────────────────────────────────────
-  deploy-frontend:
-    name: 🌐 Deploy Frontend → GitHub Pages
+  build-frontend:
+    name: 🏗️ Build Frontend (verification)
     needs: test-backend
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - uses: actions/checkout@v4
@@ -83,42 +77,31 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
         working-directory: frontend
         run: npm install
 
-      - name: Build frontend (production)
+      - name: Build frontend
         working-directory: frontend
         run: npm run build
         env:
-          # URL del backend en Render.com — sin trailing slash
-          # Ejemplo: https://gym-management-api.onrender.com
           VITE_API_URL: ${{ vars.RENDER_BACKEND_URL }}
-          # Base path para GitHub Pages = /nombre-del-repo/
           VITE_BASE_PATH: /examen-2026-i-pds-u1-Ankluna72/
 
-      - name: Setup GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload frontend build artifact
+        uses: actions/upload-artifact@v4
         with:
+          name: frontend-dist
           path: frontend/dist
+          retention-days: 7
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-
-      - name: Print deployed URL
-        run: echo "✅ Frontend URL: ${{ steps.deployment.outputs.page_url }}"
+      - name: Print build success
+        run: echo "✅ Frontend built successfully. Deploy is handled by publish_doc.yml"
 
   # ────────────────────────────────────────────────────────────────
   # JOB 3: Deploy Backend → Render.com (GRATIS)
-  # Solo necesita 1 secret: RENDER_DEPLOY_HOOK_URL
-  # Lo obtienes en: Dashboard de Render → tu servicio → Settings → Deploy Hook
+  # render.yaml auto-deploys on push. Este job notifica si hay deploy hook.
   # ────────────────────────────────────────────────────────────────
   deploy-backend:
     name: 🚀 Deploy Backend → Render.com
@@ -135,10 +118,6 @@ jobs:
               -X POST
             echo "✅ Render.com deploy triggered successfully"
           else
-            echo "⚠️  RENDER_DEPLOY_HOOK_URL secret not set."
-            echo "    Para configurar el deploy automático:"
-            echo "    1. Ve a https://dashboard.render.com"
-            echo "    2. Selecciona tu servicio gym-management-api"
-            echo "    3. Settings → Deploy Hook → Copiar URL"
-            echo "    4. Agregar como secret RENDER_DEPLOY_HOOK_URL en GitHub"
+            echo "ℹ️  RENDER_DEPLOY_HOOK_URL not set — Render.com auto-deploys via render.yaml"
+            echo "   Backend URL: ${{ vars.RENDER_BACKEND_URL }}"
           fi
